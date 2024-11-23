@@ -1,52 +1,100 @@
 import os
-import json
-import requests
+import pytest
+from fastapi.testclient import TestClient
+from backend.app import app  # Import from backend.app.py
 
-# Define the folder containing the JSON files and the endpoint URL
-folder_path = './test_files'  # Change this to your folder path
-scan_endpoint = 'http://localhost:8000/scan'  # Replace with your actual endpoint
+client = TestClient(app)
 
-# Function to read JSON files and send them to the scan endpoint
-def send_json_files():
-    # List all files in the folder
-    files = os.listdir(folder_path)
-    
-    # Filter out only JSON files
-    json_files = [file for file in files if file.endswith('.json')]
-    
-    # Limit to the first 10 JSON files
-    json_files = json_files[:10]
-    
-    if not json_files:
-        print("No JSON files found in the folder.")
-        return
-    
-    # Iterate through each JSON file
-    for file in json_files:
-        file_path = os.path.join(folder_path, file)
-        
-        try:
-            # Read the content of the JSON file
-            with open(file_path, 'r') as f:
-                content = json.load(f)  # Get the content as a dictionary
+# Directory containing test CSV files
+TEST_CSV_DIR = './test_files'
 
-            # Prepare the payload for the scan endpoint
-            payload = {
-                "file_name": file,
-                "content": json.dumps(content)  # Ensure content is sent as a string
-            }
-            
-            # Send the JSON data to the scan endpoint
-            response = requests.post(scan_endpoint, json=payload)
-            
-            # Check if the request was successful
-            if response.status_code == 200:
-                print(f"Successfully sent {file} to the scan endpoint.")
-            else:
-                print(f"Failed to send {file}. Status code: {response.status_code}")
-        except Exception as e:
-            print(f"Error processing file {file}: {str(e)}")
+# Function to get a list of all CSV files in the test directory
+def get_csv_files(directory):
+    return [os.path.join(directory, file) for file in os.listdir(directory) if file.endswith('.csv')]
 
-# Call the function to start sending files
-if __name__ == '__main__':
-    send_json_files()
+# Test for the /scanML/ endpoint
+@pytest.mark.asyncio
+@pytest.mark.parametrize("csv_file", get_csv_files(TEST_CSV_DIR))
+async def test_scanML(csv_file):
+    with open(csv_file, 'rb') as f:
+        response = client.post("/scanML/", files={"file": ("test.csv", f, "text/csv")})
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+    for item in data:
+        assert 'id' in item
+        assert 'file_name' in item
+        assert 'pii_type' in item
+        assert 'pii_value' in item
+
+# Test for the /scanFile endpoint
+@pytest.mark.asyncio
+@pytest.mark.parametrize("csv_file", get_csv_files(TEST_CSV_DIR))
+async def test_scanFile(csv_file):
+    with open(csv_file, 'rb') as f:
+        response = client.post("/scanFile", files={"file": ("test.csv", f, "text/csv")})
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+    for item in data:
+        assert 'id' in item
+        assert 'file_name' in item
+        assert 'pii_type' in item
+        assert 'pii_value' in item
+
+# Test for unsupported file format
+@pytest.mark.asyncio
+async def test_unsupported_file_type():
+    # Test for PDF (unsupported in the current code)
+    with open('./test_files/sample.pdf', 'rb') as f:
+        response = client.post("/scanML/", files={"file": ("test.pdf", f, "application/pdf")})
+    assert response.status_code == 400
+    assert "Unsupported file type" in response.json()['detail']
+
+# Test for empty file upload
+@pytest.mark.asyncio
+async def test_empty_file():
+    with open('./test_files/empty.csv', 'rb') as f:
+        response = client.post("/scanML/", files={"file": ("empty.csv", f, "text/csv")})
+    assert response.status_code == 200
+    assert response.json() == []  # Expect an empty list because no PII is found
+
+# Test PII data insertion into MongoDB
+@pytest.mark.asyncio
+async def test_pii_data_insertion():
+    with open('./test_files/sample.csv', 'rb') as f:
+        response = client.post("/scanFile", files={"file": ("sample.csv", f, "text/csv")})
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+    
+    # Check if the inserted PII data is actually in MongoDB
+    pii_record = data[0]  # Assuming at least one PII is found
+    assert 'id' in pii_record
+    assert 'file_name' in pii_record
+    assert 'pii_type' in pii_record
+    assert 'pii_value' in pii_record
+
+    # Retrieve and check the inserted data in MongoDB
+    db_record = await client.get(f"/retrieveAll")
+    assert pii_record in db_record.json()
+
+# Test PII deletion
+@pytest.mark.asyncio
+async def test_delete_pii():
+    # Assuming PII data exists in the database
+    data = {
+        "file_name": "sample.csv",
+        "pii_value": "123-45-6789"  # Example PII value
+    }
+    
+    response = client.delete("/delete/", json=data)
+    assert response.status_code == 200
+    assert response.json()['detail'] == "Record deleted successfully."
+
+# Test delete all PII data
+@pytest.mark.asyncio
+async def test_delete_all_pii():
+    response = client.delete("/deleteAll")
+    assert response.status_code == 200
+    assert 'detail' in response.json()
