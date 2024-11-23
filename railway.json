@@ -1,0 +1,15 @@
+{
+    "$schema": "https://railway.app/railway.schema.json",
+    "build": {
+      "builder": "DOCKER",  // Specify Docker as the builder
+      "dockerCompose": "./docker-compose.yml"  // Path to the docker-compose file in the main directory
+    },
+    "deploy": {
+      "runtime": "V2",  // Using V2 runtime for Railway
+      "numReplicas": 1,  // Number of replicas, scale as needed
+      "sleepApplication": false,  // Keep the application always on
+      "restartPolicyType": "ON_FAILURE",  // Restart the app if it fails
+      "restartPolicyMaxRetries": 10  // Limit the number of retries on failure
+    }
+  }
+  
