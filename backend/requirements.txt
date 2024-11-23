@@ -1,0 +1,10 @@
+fastapi==0.95.0
+uvicorn==0.22.0
+presidio-analyzer==2.2.355
+presidio-anonymizer==2.2.355
+spacy==3.5.0
+motor==2.5.1  # Compatible with pymongo < 4
+numpy==1.21.4
+pymongo==3.12.3  # Compatible version for Python 3.9
+pydantic==1.7.4  # Compatible version for spaCy
+python-multipart==0.0.5  # Add python-multipart for form data handling
